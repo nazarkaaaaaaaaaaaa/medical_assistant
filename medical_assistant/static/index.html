@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent Medical Assistant (Groq)</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🏥 Groq Multi-Agent Medical Assistant</h1>
+        <p>Введите данные пациента для получения Диагноза, Плана лечения и Мониторинга (FastAPI + Чистый Groq).</p>
+
+        <form id="diagnosis-form">
+            <div class="form-group">
+                <label for="symptoms">Симптомы (Symptoms):</label>
+                <textarea id="symptoms" name="symptoms" rows="4" required placeholder="Например: Сильная головная боль, умеренная температура 37.8°C, боль в горле."></textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="age">Возраст (Age):</label>
+                    <input type="number" id="age" name="age" required min="1" max="120" value="30">
+                </div>
+                <div class="form-group">
+                    <label for="gender">Пол (Gender):</label>
+                    <select id="gender" name="gender" required>
+                        <option value="Male">Мужской</option>
+                        <option value="Female">Женский</option>
+                        <option value="Other">Другой</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="history">Медицинская история (необязательно) (Medical History):</label>
+                <textarea id="history" name="history" rows="2" placeholder="Например: Аллергия на пенициллин, хронический гастрит."></textarea>
+            </div>
+
+            <button type="submit" class="submit-button">Получить Диагноз и Лечение</button>
+        </form>
+
+        <div id="error-area" class="error-box" style="display:none;">
+            <h2>Ошибка:</h2>
+            <p id="error-message"></p>
+        </div>
+
+        <div id="result-area" style="display:none;">
+            <h2>✅ Результаты работы агентов</h2>
+
+            <div class="output-section">
+                <h3>Агент 1: Диагност (Diagnosis)</h3>
+                <div id="diagnosis-output" class="output-content"></div>
+            </div>
+
+            <div class="output-section">
+                <h3>Агент 2: Терапевт (Treatment Plan)</h3>
+                <div id="treatment-output" class="output-content"></div>
+            </div>
+
+            <div class="output-section">
+                <h3>Агент 3: Монитор (Monitoring Feedback)</h3>
+                <div id="monitoring-output" class="output-content"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // *** Ключевая функция для преобразования Markdown в HTML ***
+        function markdownToHtml(markdownText) {
+            if (!markdownText) return '';
+
+            let html = markdownText;
+
+            // 1. Заголовки (### H3)
+            html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+            // 2. Заголовки (## H2)
+            html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+            // 3. Заголовки (# H1)
+            html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+            // 4. Жирный текст (**text**)
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+            // 5. Курсив (*text*)
+            html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+            // 6. Списки (* Item или - Item) - Более надежный парсер списка
+            let listContent = '';
+            const lines = html.split('\n');
+            let inList = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+
+                if (line.match(/^[\*\-]\s/)) {
+                    if (!inList) {
+                        listContent += '<ul>\n';
+                        inList = true;
+                    }
+                    listContent += `<li>${line.replace(/^[\*\-]\s/, '').trim()}</li>\n`;
+                } else {
+                    if (inList) {
+                        listContent += '</ul>\n';
+                        inList = false;
+                    }
+                    listContent += lines[i] + '\n';
+                }
+            }
+            if (inList) {
+                 listContent += '</ul>\n';
+            }
+            html = listContent.trim();
+
+            // 7. Разрывы строк (заменяем двойные переносы строки на <br><br> для параграфов)
+            html = html.replace(/\n\n/g, '<br><br>');
+
+            return html;
+        }
+
+        document.getElementById('diagnosis-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // Очистка предыдущих результатов и показ загрузки
+            document.getElementById('result-area').style.display = 'none';
+            document.getElementById('error-area').style.display = 'none';
+            document.getElementById('diagnosis-output').innerHTML = 'Обработка...';
+            document.getElementById('treatment-output').innerHTML = '';
+            document.getElementById('monitoring-output').innerHTML = '';
+
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const response = await fetch('/diagnose_and_treat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Используем .innerHTML и функцию MarkdownToHtml для форматирования
+                    document.getElementById('diagnosis-output').innerHTML = markdownToHtml(result.diagnosis);
+                    document.getElementById('treatment-output').innerHTML = markdownToHtml(result.treatment);
+                    document.getElementById('monitoring-output').innerHTML = markdownToHtml(result.monitoring_feedback);
+
+                    document.getElementById('result-area').style.display = 'block';
+                } else {
+                    document.getElementById('error-message').textContent = result.error;
+                    document.getElementById('error-area').style.display = 'block';
+                }
+            } catch (error) {
+                // Обработка сетевых и прочих ошибок
+                document.getElementById('error-message').textContent = 'Network or parsing error: ' + error.message;
+                document.getElementById('error-area').style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
